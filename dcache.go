@@ -78,9 +78,12 @@ func main() {
 
 	r.POST("set", func(ctx *gin.Context) {
 		var cmd cache.Command
-		ctx.ShouldBindJSON(&cmd)
-		cmd.Op = cache.CmdOpSet
-		err = raftctx.Apply(ctx.Request.RequestURI, cmd)
+		err = ctx.ShouldBindJSON(&cmd)
+		if err == nil {
+			cmd.Op = cache.CmdOpSet
+			err = raftctx.Apply(ctx.Request.RequestURI, cmd)
+		}
+
 		ret := HttpResult{
 			RetCode: http.StatusOK,
 		}
@@ -95,9 +98,12 @@ func main() {
 
 	r.POST("del", func(ctx *gin.Context) {
 		var cmd cache.Command
-		ctx.ShouldBindJSON(&cmd)
-		cmd.Op = cache.CmdOpDel
-		err = raftctx.Apply(ctx.Request.RequestURI, cmd)
+		err = ctx.ShouldBindJSON(&cmd)
+		if err == nil {
+			cmd.Op = cache.CmdOpDel
+			err = raftctx.Apply(ctx.Request.RequestURI, cmd)
+		}
+
 		ret := HttpResult{
 			RetCode: http.StatusOK,
 		}
