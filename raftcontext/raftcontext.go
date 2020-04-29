@@ -106,17 +106,41 @@ func NewRaftContext(httpAddress, raftAddress, joinAddress string, dc cache.Cache
 }
 
 // Apply 应用.
-func (rctx *RaftContext) Apply(datas []byte) error {
-	if raft.Leader != rctx.raft.State() {
+func (rctx *RaftContext) Apply(uri string, cmd cache.Command) error {
+	datas, err := jsoniter.Marshal(cmd)
+	if err != nil {
+		return err
+	}
+
+	if raft.Leader == rctx.raft.State() {
+		ret := rctx.raft.Apply(datas, 5*time.Second)
+		if err := ret.Error(); err != nil {
+			logger.Errorf("apply failed[%s].", err.Error())
+
+			return err
+		}
+
 		return nil
 	}
 
-	ret := rctx.raft.Apply(datas, 5*time.Second)
-	if err := ret.Error(); err != nil {
-		logger.Errorf("apply failed[%s].", err.Error())
+	// 非leader节点,转发.
+	leaderHttp, ok := rctx.getLeaderHttpAddr()
+	if !ok {
+		// 没有leader,返回错误.
+		return raft.ErrNotLeader
 	}
 
-	return nil
+	recmd := cache.Command{
+		Datas: cmd.Datas,
+	}
+
+	buf, err := jsoniter.Marshal(recmd)
+	if err != nil {
+		return err
+	}
+
+	_, err = httpRequest(leaderHttp, uri, buf)
+	return err
 }
 
 // JoinHandler
@@ -152,8 +176,8 @@ func (rctx *RaftContext) JoinHandler(req ClusterReq) ClusterResult {
 	}
 
 	// 获取leader.
-	server := rctx.raft.Leader()
-	if len(server) == 0 {
+	leaderHttp, ok := rctx.getLeaderHttpAddr()
+	if !ok {
 		// 没有leader,返回错误.
 		err := raft.ErrNotLeader
 		ret.RetCode = http.StatusInternalServerError
@@ -162,20 +186,8 @@ func (rctx *RaftContext) JoinHandler(req ClusterReq) ClusterResult {
 		return ret
 	}
 
-	// 获取leader的http接口.
-	rctx.clusterMutex.Lock()
-	leaderHttp, ok := rctx.clusterinfo[string(server)]
-	if !ok {
-		// 不存在,返回错误.
-		err := raft.ErrNotLeader
-		ret.RetCode = http.StatusInternalServerError
-		ret.RetDesc = err.Error()
-
-		return ret
-	}
-
 	// 转发到leader服务上.
-	rediretRet, err := httpRequest(req.HTTPAddress, req.RaftAddress, leaderHttp)
+	buf, err := jsoniter.Marshal(req)
 	if err != nil {
 		ret.RetCode = http.StatusInternalServerError
 		ret.RetDesc = err.Error()
@@ -183,13 +195,43 @@ func (rctx *RaftContext) JoinHandler(req ClusterReq) ClusterResult {
 		return ret
 	}
 
-	ret.Datas = rediretRet.Datas
+	redirectRet, err := httpRequest(leaderHttp, "/join", buf)
+	if err != nil {
+		ret.RetCode = http.StatusInternalServerError
+		ret.RetDesc = err.Error()
+
+		return ret
+	}
+
+	err = jsoniter.Unmarshal(redirectRet, &ret)
+	if err != nil {
+		ret.RetCode = http.StatusInternalServerError
+		ret.RetDesc = err.Error()
+
+		return ret
+	}
 
 	return ret
 }
 
 func (rctx *RaftContext) joinCluster() error {
-	ret, err := httpRequest(rctx.httpAddr, rctx.raftAddr, rctx.joinAddr)
+	req := ClusterReq{
+		HTTPAddress: rctx.httpAddr,
+		RaftAddress: rctx.raftAddr,
+	}
+
+	buf, err := jsoniter.Marshal(req)
+	if err != nil {
+		return err
+	}
+
+	redirectRet, err := httpRequest(rctx.joinAddr, "/join", buf)
+	if err != nil {
+		return err
+	}
+
+	var ret ClusterResult
+	err = jsoniter.Unmarshal(redirectRet, &ret)
 	if err != nil {
 		return err
 	}
@@ -221,44 +263,56 @@ func (rctx *RaftContext) notify() {
 	}
 }
 
-func httpRequest(httpAddr, raftAddr, joinAddr string) (ClusterResult, error) {
+func (rctx *RaftContext) getLeaderHttpAddr() (string, bool) {
+	// 获取leader.
+	server := rctx.raft.Leader()
+	if len(server) == 0 {
+		// 没有leader.
+		return "", false
+	}
+
+	// 获取leader的http接口.
+	rctx.clusterMutex.Lock()
+	leaderHttp, ok := rctx.clusterinfo[string(server)]
+	rctx.clusterMutex.Unlock()
+	if !ok {
+		// 不存在,返回错误.
+		return "", false
+	}
+
+	return leaderHttp, true
+}
+
+func httpRequest(httpAddr, uri string, datas []byte) ([]byte, error) {
 	// 加入集群中.
 	cli := &http.Client{
 		Timeout: time.Second * 5,
 	}
 
-	if !strings.HasPrefix(joinAddr, "http") {
-		joinAddr += "http://"
+	if !strings.HasPrefix(httpAddr, "http") {
+		httpAddr = "http://" + httpAddr
 	}
 
-	url := joinAddr + "/join"
-	req := ClusterReq{httpAddr, raftAddr}
-	b, err := jsoniter.Marshal(req)
+	url := httpAddr + uri
+	httpReq, err := http.NewRequest("POST", url, bytes.NewReader(datas))
 	if err != nil {
-		return ClusterResult{}, err
-	}
-
-	httpReq, err := http.NewRequest("POST", url, bytes.NewReader(b))
-	if err != nil {
-		return ClusterResult{}, err
+		return nil, err
 	}
 
 	rsp, err := cli.Do(httpReq)
 	if err != nil {
-		return ClusterResult{}, err
+		return nil, err
 	}
 
 	if http.StatusOK != rsp.StatusCode {
-		return ClusterResult{}, JoinError
+		return nil, JoinError
 	}
 
 	defer rsp.Body.Close()
 	buf, err := ioutil.ReadAll(rsp.Body)
 	if err != nil {
-		return ClusterResult{}, err
+		return nil, err
 	}
 
-	ret := ClusterResult{}
-	err = jsoniter.Unmarshal(buf, &ret)
-	return ret, err
+	return buf, err
 }

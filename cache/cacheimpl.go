@@ -33,6 +33,20 @@ func (c *cacheimpl) Get(key string) (string, error) {
 	return "", CacheNilError
 }
 
+// Keys 获取所有键.
+func (c *cacheimpl) Keys() []string {
+	c.rlock()
+	defer c.runlock()
+	keys := make([]string, len(c.datas))
+	index := 0
+	for k := range c.datas {
+		keys[index] = k
+		index++
+	}
+
+	return keys
+}
+
 // Marshal 编码.
 func (c *cacheimpl) Marshal() ([]byte, error) {
 	c.lock()
@@ -58,6 +72,7 @@ func (c *cacheimpl) UnMarshal(serialized io.ReadCloser) error {
 
 // Apply 应用.
 func (c *cacheimpl) Do(datas []byte) error {
+	logger.Debugf("apply datas[%s]", datas)
 	e := Command{}
 	err := jsoniter.Unmarshal(datas, &e)
 	if err != nil {

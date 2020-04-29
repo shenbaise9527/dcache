@@ -17,6 +17,9 @@ type Cache interface {
 	// Get 获取指定键值.
 	Get(string) (string, error)
 
+	// Keys 获取所有键.
+	Keys() []string
+
 	// Marshal 编码.
 	Marshal() ([]byte, error)
 
@@ -40,6 +43,6 @@ const (
 
 // Command 命令.
 type Command struct {
-	Op    CmdOp
-	Datas []string
+	Op    CmdOp    `json:"op,omitempty"`
+	Datas []string `json:"datas"`
 }

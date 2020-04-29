@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	jsoniter "github.com/json-iterator/go"
 	"github.com/shenbaise9527/dcache/cache"
 	"github.com/shenbaise9527/dcache/logger"
 	"github.com/shenbaise9527/dcache/raftcontext"
@@ -35,7 +34,8 @@ func main() {
 	dc := cache.NewCache()
 
 	// 生成raft.
-	raftctx, err := raftcontext.NewRaftContext(op.httpAddress, op.raftAddress, op.joinAddress, dc)
+	raftctx, err := raftcontext.NewRaftContext(
+		op.httpAddress, op.raftAddress, op.joinAddress, dc)
 	if err != nil {
 		logger.Errorf("init raft failed[%s].", err.Error())
 
@@ -52,7 +52,7 @@ func main() {
 
 	// 提供的http接口.
 	r.GET("get", func(ctx *gin.Context) {
-		key := ctx.Param("key")
+		key := ctx.Query("key")
 		ret := HttpResult{
 			RetCode: http.StatusOK,
 		}
@@ -66,25 +66,26 @@ func main() {
 		ctx.SecureJSON(ret.RetCode, ret)
 	})
 
+	r.GET("keys", func(ctx *gin.Context) {
+		ret := HttpResult{
+			RetCode: http.StatusOK,
+			Data:    dc.Keys(),
+		}
+
+		ctx.SecureJSON(ret.RetCode, ret)
+	})
+
 	r.POST("set", func(ctx *gin.Context) {
-		key := ctx.PostForm("key")
-		val := ctx.PostForm("value")
-		cmd := cache.Command{
-			Op:    cache.CmdOpSet,
-			Datas: []string{key, val},
-		}
-
-		datas, err := jsoniter.Marshal(cmd)
-		if err == nil {
-			err = raftctx.Apply(datas)
-		}
-
+		var cmd cache.Command
+		ctx.ShouldBindJSON(&cmd)
+		cmd.Op = cache.CmdOpSet
+		err = raftctx.Apply(ctx.Request.RequestURI, cmd)
 		ret := HttpResult{
 			RetCode: http.StatusOK,
 		}
 
 		if err != nil {
-			ret.RetCode = http.StatusForbidden
+			ret.RetCode = http.StatusInternalServerError
 			ret.RetDesc = err.Error()
 		}
 
@@ -92,17 +93,10 @@ func main() {
 	})
 
 	r.POST("del", func(ctx *gin.Context) {
-		key := ctx.PostForm("key")
-		cmd := cache.Command{
-			Op:    cache.CmdOpDel,
-			Datas: []string{key},
-		}
-
-		datas, err := jsoniter.Marshal(cmd)
-		if err == nil {
-			err = raftctx.Apply(datas)
-		}
-
+		var cmd cache.Command
+		ctx.ShouldBindJSON(&cmd)
+		cmd.Op = cache.CmdOpDel
+		err = raftctx.Apply(ctx.Request.RequestURI, cmd)
 		ret := HttpResult{
 			RetCode: http.StatusOK,
 		}
