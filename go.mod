@@ -4,6 +4,7 @@ go 1.14
 
 require (
 	github.com/gin-gonic/gin v1.6.2
+	github.com/hashicorp/go-hclog v0.9.1
 	github.com/hashicorp/raft v1.1.2
 	github.com/hashicorp/vic v1.5.0
 	github.com/json-iterator/go v1.1.9

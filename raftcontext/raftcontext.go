@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/raft"
 	"github.com/hashicorp/vic/pkg/errors"
 	jsoniter "github.com/json-iterator/go"
@@ -47,23 +48,34 @@ type RaftContext struct {
 func NewRaftContext(httpAddress, raftAddress, joinAddress string, dc cache.Cache) (*RaftContext, error) {
 	cnf := raft.DefaultConfig()
 	cnf.LocalID = raft.ServerID(raftAddress)
-	cnf.LogOutput = logger.GetLoggerWriter()
+	cnf.Logger = hclog.New(&hclog.LoggerOptions{
+		Name:            "raft",
+		Output:          logger.GetLoggerWriter(),
+		Level:           hclog.DefaultLevel,
+		IncludeLocation: true,
+		TimeFormat:      "2006-01-02 15:04:05",
+	})
 	leaderNotify := make(chan bool, 1)
 	cnf.NotifyCh = leaderNotify
-
 	tranAddr, err := net.ResolveTCPAddr("tcp", raftAddress)
 	if err != nil {
 		return nil, err
 	}
 
-	tran, err := raft.NewTCPTransport(
-		tranAddr.String(), tranAddr, 3, 10*time.Second, logger.GetLoggerWriter())
+	netLogger := hclog.New(&hclog.LoggerOptions{
+		Name:            "raft-net",
+		Output:          logger.GetLoggerWriter(),
+		Level:           hclog.DefaultLevel,
+		IncludeLocation: true,
+		TimeFormat:      "2006-01-02 15:04:05",
+	})
+	tran, err := raft.NewTCPTransportWithLogger(
+		tranAddr.String(), tranAddr, 3, 10*time.Second, netLogger)
 	if err != nil {
 		return nil, err
 	}
 
 	fsm := &FSM{dc}
-
 	snapShotStore := raft.NewInmemSnapshotStore()
 	logStore := raft.NewInmemStore()
 	stableStore := raft.NewInmemStore()

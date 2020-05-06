@@ -70,7 +70,7 @@ func (c *cacheimpl) UnMarshal(serialized io.ReadCloser) error {
 	return nil
 }
 
-// Apply 应用.
+// Do 执行命令.
 func (c *cacheimpl) Do(datas []byte) error {
 	logger.Debugf("apply datas[%s]", datas)
 	e := Command{}
