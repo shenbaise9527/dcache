@@ -11,8 +11,8 @@ import (
 	"github.com/shenbaise9527/dcache/raftcontext"
 )
 
-// HttpResult http接口的结果.
-type HttpResult struct {
+// HTTPResult http接口的结果.
+type HTTPResult struct {
 	RetCode int         `json:"retcode"`
 	RetDesc string      `json:"retdesc"`
 	Data    interface{} `json:"data"`
@@ -54,7 +54,7 @@ func main() {
 	// 提供的http接口.
 	r.GET("get", func(ctx *gin.Context) {
 		key := ctx.Query("key")
-		ret := HttpResult{
+		ret := HTTPResult{
 			RetCode: http.StatusOK,
 		}
 
@@ -68,7 +68,7 @@ func main() {
 	})
 
 	r.GET("keys", func(ctx *gin.Context) {
-		ret := HttpResult{
+		ret := HTTPResult{
 			RetCode: http.StatusOK,
 			Data:    dc.Keys(),
 		}
@@ -84,7 +84,7 @@ func main() {
 			err = raftctx.Apply(ctx.Request.RequestURI, cmd)
 		}
 
-		ret := HttpResult{
+		ret := HTTPResult{
 			RetCode: http.StatusOK,
 		}
 
@@ -104,7 +104,7 @@ func main() {
 			err = raftctx.Apply(ctx.Request.RequestURI, cmd)
 		}
 
-		ret := HttpResult{
+		ret := HTTPResult{
 			RetCode: http.StatusOK,
 		}
 
